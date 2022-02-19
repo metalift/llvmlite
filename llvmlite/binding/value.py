@@ -1,5 +1,11 @@
+# akcheung: replace llvmlite's value.py with this file
+# on osx this is /Library/Frameworks/Python.framework/Versions/3.xxx/lib/python3.xxx/site-packages/llvmlite/binding
+
 from ctypes import POINTER, c_char_p, c_int, c_size_t, c_uint, c_bool, c_void_p
 import enum
+
+# akcheung
+import re
 
 from llvmlite.binding import ffi
 from llvmlite.binding.common import _decode_string, _encode_string
@@ -82,11 +88,36 @@ class ValueRef(ffi.ObjectRef):
         self._kind = kind
         self._parents = parents
         ffi.ObjectRef.__init__(self, ptr)
+        # akcheung
+        self.ops = None  # a hack to store the assigned operands
 
     def __str__(self):
-        with ffi.OutputString() as outstr:
-            ffi.lib.LLVMPY_PrintValueToString(self, outstr)
-            return str(outstr)
+        # akcheung -- get string from LLVM but replace contents with actual operands. hack for set and get fields
+        if self.ops:
+            with ffi.OutputString() as outstr:
+                ffi.lib.LLVMPY_PrintValueToString(self, outstr)
+                if re.search("@ML_[\w]+_set_[\w]+", str(outstr)):
+                    return '  call void @setField(%s "%s", %s %s, %s %s)' % (
+                        self.ops[0].type,
+                        self.ops[0],
+                        self.ops[1].type,
+                        self.ops[1].name,
+                        self.ops[2].type,
+                        self.ops[2].name,
+                    )
+                else:  # get field
+                    return '  %%%s = call void @getField(%s "%s", %s %s)' % (
+                        self.name,
+                        self.ops[0].type,
+                        self.ops[0],
+                        self.ops[1].type,
+                        self.ops[1].name,
+                    )
+
+        else:
+            with ffi.OutputString() as outstr:
+                ffi.lib.LLVMPY_PrintValueToString(self, outstr)
+                return str(outstr)
 
     @property
     def module(self):
@@ -284,13 +315,22 @@ class ValueRef(ffi.ObjectRef):
         Return an iterator over this instruction's operands.
         The iterator will yield a ValueRef for each operand.
         """
-        if not self.is_instruction:
-            raise ValueError('expected instruction value, got %s'
-                             % (self._kind,))
-        it = ffi.lib.LLVMPY_InstructionOperandsIter(self)
-        parents = self._parents.copy()
-        parents.update(instruction=self)
-        return _OperandsIterator(it, parents)
+        # akcheung
+        if self.ops:
+            return self.ops
+        else:
+
+            if not self.is_instruction:
+                raise ValueError("expected instruction value, got %s" % (self._kind,))
+            it = ffi.lib.LLVMPY_InstructionOperandsIter(self)
+            parents = self._parents.copy()
+            parents.update(instruction=self)
+            return _OperandsIterator(it, parents)
+
+    # akcheung
+    @operands.setter
+    def operands(self, ops):
+        self.ops = ops
 
     @property
     def opcode(self):
