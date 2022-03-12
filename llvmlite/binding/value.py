@@ -50,8 +50,8 @@ class StorageClass(enum.IntEnum):
 
 
 class TypeRef(ffi.ObjectRef):
-    """A weak reference to a LLVM type
-    """
+    """A weak reference to a LLVM type"""
+
     @property
     def name(self):
         """
@@ -81,15 +81,15 @@ class TypeRef(ffi.ObjectRef):
 
 
 class ValueRef(ffi.ObjectRef):
-    """A weak reference to a LLVM value.
-    """
+    """A weak reference to a LLVM value."""
 
     def __init__(self, ptr, kind, parents):
         self._kind = kind
         self._parents = parents
         ffi.ObjectRef.__init__(self, ptr)
         # akcheung
-        self.ops = None  # a hack to store the assigned operands
+        self.ops = None  # hack to store the assigned operands
+        self.my_type = None  # hack to let types be settable for type inference
 
     def __str__(self):
         # akcheung -- get string from LLVM but replace contents with actual operands. hack for set and get fields
@@ -124,52 +124,52 @@ class ValueRef(ffi.ObjectRef):
         """
         The module this function or global variable value was obtained from.
         """
-        return self._parents.get('module')
+        return self._parents.get("module")
 
     @property
     def function(self):
         """
         The function this argument or basic block value was obtained from.
         """
-        return self._parents.get('function')
+        return self._parents.get("function")
 
     @property
     def block(self):
         """
         The block this instruction value was obtained from.
         """
-        return self._parents.get('block')
+        return self._parents.get("block")
 
     @property
     def instruction(self):
         """
         The instruction this operand value was obtained from.
         """
-        return self._parents.get('instruction')
+        return self._parents.get("instruction")
 
     @property
     def is_global(self):
-        return self._kind == 'global'
+        return self._kind == "global"
 
     @property
     def is_function(self):
-        return self._kind == 'function'
+        return self._kind == "function"
 
     @property
     def is_block(self):
-        return self._kind == 'block'
+        return self._kind == "block"
 
     @property
     def is_argument(self):
-        return self._kind == 'argument'
+        return self._kind == "argument"
 
     @property
     def is_instruction(self):
-        return self._kind == 'instruction'
+        return self._kind == "instruction"
 
     @property
     def is_operand(self):
-        return self._kind == 'operand'
+        return self._kind == "operand"
 
     @property
     def name(self):
@@ -218,21 +218,31 @@ class ValueRef(ffi.ObjectRef):
             attribute name
         """
         if not self.is_function:
-            raise ValueError('expected function value, got %s' % (self._kind,))
+            raise ValueError("expected function value, got %s" % (self._kind,))
         attrname = str(attr)
         attrval = ffi.lib.LLVMPY_GetEnumAttributeKindForName(
-            _encode_string(attrname), len(attrname))
+            _encode_string(attrname), len(attrname)
+        )
         if attrval == 0:
-            raise ValueError('no such attribute {!r}'.format(attrname))
+            raise ValueError("no such attribute {!r}".format(attrname))
         ffi.lib.LLVMPY_AddFunctionAttr(self, attrval)
 
     @property
     def type(self):
-        """
-        This value's LLVM type.
-        """
-        # XXX what does this return?
-        return TypeRef(ffi.lib.LLVMPY_TypeOf(self))
+        # akcheung
+        if self.my_type:
+            return self.my_type
+        else:
+            """
+            This value's LLVM type.
+            """
+            # XXX what does this return?
+            return TypeRef(ffi.lib.LLVMPY_TypeOf(self))
+
+    # akcheung
+    @type.setter
+    def type(self, t):
+        self.my_type = t
 
     @property
     def is_declaration(self):
@@ -241,8 +251,9 @@ class ValueRef(ffi.ObjectRef):
         module.
         """
         if not (self.is_global or self.is_function):
-            raise ValueError('expected global or function value, got %s'
-                             % (self._kind,))
+            raise ValueError(
+                "expected global or function value, got %s" % (self._kind,)
+            )
         return ffi.lib.LLVMPY_IsDeclaration(self)
 
     @property
@@ -256,10 +267,10 @@ class ValueRef(ffi.ObjectRef):
             it = ffi.lib.LLVMPY_FunctionAttributesIter(self)
             itr = _AttributeListIterator(it)
         elif self.is_instruction:
-            if self.opcode == 'call':
+            if self.opcode == "call":
                 it = ffi.lib.LLVMPY_CallInstAttributesIter(self)
                 itr = _AttributeListIterator(it)
-            elif self.opcode == 'invoke':
+            elif self.opcode == "invoke":
                 it = ffi.lib.LLVMPY_InvokeInstAttributesIter(self)
                 itr = _AttributeListIterator(it)
         elif self.is_global:
@@ -277,7 +288,7 @@ class ValueRef(ffi.ObjectRef):
         The iterator will yield a ValueRef for each block.
         """
         if not self.is_function:
-            raise ValueError('expected function value, got %s' % (self._kind,))
+            raise ValueError("expected function value, got %s" % (self._kind,))
         it = ffi.lib.LLVMPY_FunctionBlocksIter(self)
         parents = self._parents.copy()
         parents.update(function=self)
@@ -290,7 +301,7 @@ class ValueRef(ffi.ObjectRef):
         The iterator will yield a ValueRef for each argument.
         """
         if not self.is_function:
-            raise ValueError('expected function value, got %s' % (self._kind,))
+            raise ValueError("expected function value, got %s" % (self._kind,))
         it = ffi.lib.LLVMPY_FunctionArgumentsIter(self)
         parents = self._parents.copy()
         parents.update(function=self)
@@ -303,7 +314,7 @@ class ValueRef(ffi.ObjectRef):
         The iterator will yield a ValueRef for each instruction.
         """
         if not self.is_block:
-            raise ValueError('expected block value, got %s' % (self._kind,))
+            raise ValueError("expected block value, got %s" % (self._kind,))
         it = ffi.lib.LLVMPY_BlockInstructionsIter(self)
         parents = self._parents.copy()
         parents.update(block=self)
@@ -335,8 +346,7 @@ class ValueRef(ffi.ObjectRef):
     @property
     def opcode(self):
         if not self.is_instruction:
-            raise ValueError('expected instruction value, got %s'
-                             % (self._kind,))
+            raise ValueError("expected instruction value, got %s" % (self._kind,))
         return ffi.ret_string(ffi.lib.LLVMPY_GetOpcodeName(self))
 
 
@@ -350,8 +360,9 @@ class _ValueIterator(ffi.ObjectRef):
         # Keep parent objects (module, function, etc) alive
         self._parents = parents
         if self.kind is None:
-            raise NotImplementedError('%s must specify kind attribute'
-                                      % (type(self).__name__,))
+            raise NotImplementedError(
+                "%s must specify kind attribute" % (type(self).__name__,)
+            )
 
     def __next__(self):
         vp = self._next()
@@ -367,7 +378,6 @@ class _ValueIterator(ffi.ObjectRef):
 
 
 class _AttributeIterator(ffi.ObjectRef):
-
     def __next__(self):
         vp = self._next()
         if vp:
@@ -382,7 +392,6 @@ class _AttributeIterator(ffi.ObjectRef):
 
 
 class _AttributeListIterator(_AttributeIterator):
-
     def _dispose(self):
         self._capi.LLVMPY_DisposeAttributeListIter(self)
 
@@ -391,7 +400,6 @@ class _AttributeListIterator(_AttributeIterator):
 
 
 class _AttributeSetIterator(_AttributeIterator):
-
     def _dispose(self):
         self._capi.LLVMPY_DisposeAttributeSetIter(self)
 
@@ -401,7 +409,7 @@ class _AttributeSetIterator(_AttributeIterator):
 
 class _BlocksIterator(_ValueIterator):
 
-    kind = 'block'
+    kind = "block"
 
     def _dispose(self):
         self._capi.LLVMPY_DisposeBlocksIter(self)
@@ -412,7 +420,7 @@ class _BlocksIterator(_ValueIterator):
 
 class _ArgumentsIterator(_ValueIterator):
 
-    kind = 'argument'
+    kind = "argument"
 
     def _dispose(self):
         self._capi.LLVMPY_DisposeArgumentsIter(self)
@@ -423,7 +431,7 @@ class _ArgumentsIterator(_ValueIterator):
 
 class _InstructionsIterator(_ValueIterator):
 
-    kind = 'instruction'
+    kind = "instruction"
 
     def _dispose(self):
         self._capi.LLVMPY_DisposeInstructionsIter(self)
@@ -434,7 +442,7 @@ class _InstructionsIterator(_ValueIterator):
 
 class _OperandsIterator(_ValueIterator):
 
-    kind = 'operand'
+    kind = "operand"
 
     def _dispose(self):
         self._capi.LLVMPY_DisposeOperandsIter(self)
@@ -445,10 +453,7 @@ class _OperandsIterator(_ValueIterator):
 
 # FFI
 
-ffi.lib.LLVMPY_PrintValueToString.argtypes = [
-    ffi.LLVMValueRef,
-    POINTER(c_char_p)
-]
+ffi.lib.LLVMPY_PrintValueToString.argtypes = [ffi.LLVMValueRef, POINTER(c_char_p)]
 
 ffi.lib.LLVMPY_GetGlobalParent.argtypes = [ffi.LLVMValueRef]
 ffi.lib.LLVMPY_GetGlobalParent.restype = ffi.LLVMModuleRef
@@ -525,8 +530,7 @@ ffi.lib.LLVMPY_BlockInstructionsIter.restype = ffi.LLVMInstructionsIterator
 ffi.lib.LLVMPY_InstructionOperandsIter.argtypes = [ffi.LLVMValueRef]
 ffi.lib.LLVMPY_InstructionOperandsIter.restype = ffi.LLVMOperandsIterator
 
-ffi.lib.LLVMPY_DisposeAttributeListIter.argtypes = [
-    ffi.LLVMAttributeListIterator]
+ffi.lib.LLVMPY_DisposeAttributeListIter.argtypes = [ffi.LLVMAttributeListIterator]
 
 ffi.lib.LLVMPY_DisposeAttributeSetIter.argtypes = [ffi.LLVMAttributeSetIterator]
 
